@@ -1,0 +1,653 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Set directory
+```{r}
+getwd()
+setwd( "Your_Directory")
+
+```
+
+#Set colormap
+```{r color, fig.height=10}
+library(RColorBrewer)
+display.brewer.all()
+c1 =brewer.pal(n = 8, name = "Set1")
+c2 =brewer.pal(n = 8, name = "Dark2")
+c3 =brewer.pal(n = 8, name = "Paired")
+c4 =brewer.pal(n = 8, name = "Accent")
+Cols = c(c1,c2, c3, c4)
+CCols = c(c1,c2, c3, c4,c1,c2, c3, c4,c1,c2, c3, c4)
+```
+#library
+```{r library}
+library(Matrix)
+library(Seurat)
+library(cowplot)
+library(dplyr)
+library(tidyverse)
+library(made4)
+library(tibble)
+library(Matrix)
+library(Seurat)
+library(cowplot)
+library(dplyr)
+library(magrittr)
+library(RColorBrewer)
+library(presto)
+library(ComplexHeatmap)
+library(circlize)
+library(nichenetr)
+library(ggplot2)
+library(ggrepel)
+library(GSA)
+library(PPInfer)
+library(plotly)
+library(DESeq2)
+library(EnhancedVolcano)
+library(monocle)
+library(Azimuth)
+library(dittoSeq)
+library(SeuratDisk)
+library(corrplot)
+library(limma)
+```
+#Load dataset
+```{r}
+DAAN_subset <- readRDS("DAAN_subset.rds")
+DAAN_subset
+```
+#Figure-1A
+#Annotation Simplification & Run Umap of total immune population
+```{r, fig.width = 5, fig.height = 5}
+DAAN_subset1 = SetIdent(DAAN_subset, value=DAAN_subset@meta.data$simple)
+DimPlot(DAAN_subset1, cols = Cols, pt.size = 0.1,raster=FALSE)
+dev.copy(png, "Figure1A.png", width = 1500, height = 1000, res = 300)
+dev.off()  # 장치 사용 종료
+```
+#Subset T cell population
+```{r}
+T_cells=c( "CD4+ Memory/Effector T"  
+,"CD8+ Naive T" 
+,"CD8+ Memory/Effector T"  
+,"CD4+ Naive T"  )
+
+DAAN_subset <-SetIdent(DAAN_subset, value = DAAN_subset@meta.data$azimuth_annotation)
+T_cell_sub <-subset(DAAN_subset, ident = T_cells)
+```
+
+#T_cell_subset Q.C. and Run Umap
+```{r}
+T_cell_sub 
+T_cell_sub = ScaleData(T_cell_sub)
+T_cell_sub <- FindVariableFeatures(T_cell_sub, selection.method = "vst", nfeatures = 3000)
+T_cell_sub <- RunPCA(T_cell_sub, features = VariableFeatures(object = T_cell_sub))
+print(T_cell_sub[["pca"]], dT_cell_subs = 1:5, nfeatures = 5)
+T_cell_sub <- FindNeighbors(T_cell_sub, dT_cell_subs = 1:4)
+T_cell_sub <- FindClusters(T_cell_sub, resolution = 0.3)
+T_cell_sub <- RunUMAP(T_cell_sub, dim = 1:50, seed.use = 1980, local.connectivity = 5, learning.rate = 5)
+DimPlot(T_cell_sub, cols = Cols, pt.size = 0.1,raster=FALSE)
+```
+#Cluster annotation
+```{r}
+new.cluster.ids <-c(
+"C0-Th-SFTPB",
+"C1-Th-IL7R",
+"C2-Tc-RPS12",
+"C3-Tc-NKG7",
+"C4-Treg-FOXP3",
+"C5-Tc-CCL5",
+"C6-Tc-GZMB",
+"C7-Tc-HSPA1A",
+"C8-Tfh-CXCL13",
+"C9-Th-S100A6"
+)
+levels(T_cell_sub)
+T_cell_sub <-SetIdent(T_cell_sub, value=T_cell_sub@meta.data$RNA_snn_res.0.3)
+names(new.cluster.ids) <- levels(T_cell_sub)
+str(new.cluster.ids)
+T_cell_sub <- RenameIdents(T_cell_sub, new.cluster.ids)
+T_cell_sub$lab = T_cell_sub@active.ident
+```
+
+```{r}
+T_cell_sub 
+#T_cell_sub <- ScaleData(T_cell_sub, features = rownames(T_cell_sub))
+markers = wilcoxauc(T_cell_sub,  group_by = "lab", assay = NULL )
+markers2<- presto::top_markers(markers, n = 15, auc_min = 0.2)
+    markers3<- markers2 %>% 
+      select(-rank) %>%  
+      unclass() %>%  
+      stack() %>% 
+      pull(values) %>% 
+      unique() %>% 
+       .[!is.na(.)] 
+
+View(markers2)
+colnames(markers2)
+write.csv(markers2, file="markers2_lab.csv")
+```
+
+```{r}
+DAAN_subset@meta.data$azimuth_annotation
+markers = wilcoxauc(DAAN_subset,  group_by = "azimuth_annotation", assay = NULL )
+markers2<- presto::top_markers(markers, n = 15, auc_min = 0.2)
+    markers3<- markers2 %>% 
+      select(-rank) %>%  
+      unclass() %>%  
+      stack() %>% 
+      pull(values) %>% 
+      unique() %>% 
+       .[!is.na(.)] 
+
+View(markers2)
+colnames(markers3)
+
+write.csv(markers2, file="markers.csv")
+
+
+dittoHeatmap(DAAN_subset, markers3,
+             scaled.to.max = TRUE,
+             #cluster_cols = isBulk(T_cell_sub),
+             annot.colors = c(Cols),
+             annot.by = c("azimuth_annotation"),
+             border_color = "gray",
+             legend_breaks = TRUE)
+```
+
+#Figure1B
+```{r, fig.width=6, fig.height=4}
+DimPlot(T_cell_sub, group.by = "lab", label.size = 3,cols = Cols, pt.size = 0.1, label=T, repel=T)
+dev.copy(png, "Figure1B.png", width = 1500, height = 1000, res = 300)
+dev.off()  
+```
+
+#Figure1C
+```{r, fig.width=9, fig.height=5}
+DimPlot(T_cell_sub, group.by = "lab", cols = Cols, pt.size = 0.1, split.by = "TPS")
+dev.copy(png, "Figure1C.png", width = 2000, height = 1000, res = 300)
+dev.off() 
+```
+#Sup.Figure1C
+```{r, fig.width=5, fig.height=5}
+p <- dittoFreqPlot(T_cell_sub, "lab", group.by = "TPS", sample.by = "sample_id",boxplot.lineweight = 0.1,
+              color.panel = c("gray","red","blue"),
+              colors = seq_along(CCols)
+              #var.labels.reorder = factor(c("Epi","Fibro/Muscle","Macro","Monocyte","NK","T","B","Plasma", "Endo","Mast", "DC"))
+              )
+ggsave(filename = "boxplot.png", plot = p, width = 6, height = 6, dpi = 600)
+```
+
+#Figure1C_BarPlot
+```{r, fig.width=3, fig.height=4}
+p <- dittoBarPlot(T_cell_sub, var="lab", group.by = "TPS",
+             color.panel = Cols,
+             scale = c( "percent"),
+             colors = seq_along(Cols)
+              )
+ggsave(filename = "Figure1C_bar.png", plot = p, width = 6, height = 6, dpi = 600)
+```
+
+```{r, fig.width=2.5, fig.height=1.5}
+
+exhaustion_genes <- c(
+  "IFNG",
+  "GZMB",
+  "GZMK",
+  "TNF",
+  "IL2RA",
+  "CD69",
+  "PDCD1",   
+  "CTLA4",   
+  "HAVCR2",  
+  "LAG3",  
+  "ENTPD1", 
+  "IDO1",   
+  "BTLA"   
+)
+
+dittoHeatmap(T_cell_sub, c("CD81","CD82","LRFN4","LRFN2","LRFN1","UPK1A","MXD4","TSPAN3"),
+             scaled.to.max = TRUE,
+             #cluster_cols = isBulk(T_cell_sub),
+             annot.colors = c(Cols),
+             annot.by = c("TPS"),
+             border_color = "gray",
+             legend_breaks = TRUE,
+)
+dev.copy(png, "Figure1E.png", width = 2000, height = 1000, res = 300)
+dev.off() 
+
+dittoHeatmap(T_cell_sub, exhaustion_genes,
+             scaled.to.max = TRUE,
+             #cluster_cols = isBulk(T_cell_sub),
+             annot.colors = c(Cols),
+             annot.by = c("TPS"),
+             border_color = "gray",
+             legend_breaks = TRUE)
+dev.copy(png, "Figure1G.png",width = 2000, height = 1000, res = 300)
+dev.off() 
+```
+
+```{r, fig.width=7, fig.height=3,5}
+
+dittoHeatmap(T_cell_sub, c("CD81","CD82","LRFN4","LRFN2","LRFN1","UPK1A","MXD4","TSPAN3"),
+             scaled.to.max = TRUE,
+             #cluster_cols = isBulk(T_cell_sub),
+             annot.colors = c(Cols),
+             annot.by = c("lab"),
+             border_color = "gray",
+             legend_breaks = TRUE)
+dev.copy(png, "Figure1H.png", width = 2000, height = 1000, res = 300)
+dev.off() 
+
+dittoHeatmap(T_cell_sub, exhaustion_genes,
+             scaled.to.max = TRUE,
+             #cluster_cols = isBulk(T_cell_sub),
+             annot.colors = c(Cols),
+             annot.by = c("lab"),
+             border_color = "gray",
+             legend_breaks = TRUE)
+           
+dev.copy(png, "Figure1F.png", width = 2000, height = 1000, res = 300)
+dev.off() 
+```
+
+#Figure 1E,G-DotPlot
+```{r, fig.width=3.6, fig.height=4}
+dotplot <-DotPlot(T_cell_sub, features = rev(exhaustion_genes), group.by = 'TPS')
+p <- dotplot + coord_flip()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))  # hjust 설정으로 레이블 위치 조정
+ggsave(filename = "Figure1E_Dot.png", plot = p, width = 4, height = 4, dpi = 600)
+
+dotplot <-DotPlot(T_cell_sub, features = c("LRFN4","LRFN2","LRFN1","UPK1A","PRPH2","MXD4","TSPAN3","CD82","CD81"), group.by = 'TPS')
+p <- dotplot + coord_flip()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))  # hjust 설정으로 레이블 위치 조정
+ggsave(filename = "Figure1G_Dot.png", plot = p, width = 4, height = 4, dpi = 600)
+```
+
+
+#Sup_Figure2A-B
+```{r}
+library(NMF)
+similarity_matrix <-as.matrix(dist(table(T_cell_sub@meta.data$RNA_snn_res.0.3, T_cell_sub@meta.data$TPS)))
+nmf <- nmf(similarity_matrix, rank = 2:5) # 오래걸린다
+
+consensusmap(nmf$fit) 
+dev.copy(png, "Sup_Figure2B.png", width = 2500, height = 2500, res = 300)
+dev.off() 
+
+p = if(requireNamespace("Biobase", quietly=TRUE)){
+plot(nmf)
+}
+ggsave(filename = "Sup_Figure2A.png", plot = p, width = 8, height = 8, dpi = 600)
+
+predict(nmf$fit[[1]]) # ra
+predict(nmf$fit[[3]]) # ra
+
+T_cell_sub <- SetIdent(T_cell_sub, value=T_cell_sub@meta.data$RNA_snn_res.0.3)
+new.cluster.ids <-c("NMF-C1","NMF-C1","NMF-C1","NMF-C1","NMF-C2","NMF-C2","NMF-C2","NMF-C2","NMF-C2","NMF-C2")
+levels(T_cell_sub)
+T_cell_sub <-SetIdent(T_cell_sub, value=T_cell_sub@meta.data$RNA_snn_res.0.3)
+names(new.cluster.ids) <- levels(T_cell_sub)
+str(new.cluster.ids)
+T_cell_sub <- RenameIdents(T_cell_sub, new.cluster.ids)
+T_cell_sub$NMF = T_cell_sub@active.ident
+```
+#Figure1D
+```{r, fig.width=7, fig.height=4}
+DimPlot(T_cell_sub, group.by ="NMF", cols=c("#377EB8" ,"#E41A1C" ), label=F, pt.size = 0.1, split.by = "TPS")
+dev.copy(png, "Figure1D.png", width = 2000, height = 1000, res = 300)
+dev.off() 
+```
+
+#Figure1D-Bar
+```{r, fig.width=4, fig.height=4}
+CCols = c("#377EB8" ,"#E41A1C" )
+p <- dittoBarPlot(T_cell_sub, var="NMF", group.by = "TPS",
+             color.panel = CCols,
+             scale = c( "percent"),
+             colors = seq_along(CCols)
+              )
+ggsave(filename = "Figure1D_bar.png", plot = p, width = 6, height = 6, dpi = 600)
+```
+
+#Sup_Figure2D
+```{r, fig.width=5, fig.height=5}
+p <- dittoFreqPlot(T_cell_sub, "NMF", group.by = "TPS", sample.by = "sample_id",boxplot.lineweight = 0.1,
+              color.panel = c("#E41A1C","#377EB8"  ),
+              colors = seq_along(CCols)              )
+ggsave(filename = "Sup_Figure2D.png", plot = p, width = 6, height = 6, dpi = 600)
+```
+#Figure1I
+```{r, fig.width=5, fig.height=5}
+VlnPlot(T_cell_sub, features = c("CD81","CD82"), group.by = "NMF", pt.size=0, cols= CCols, log=T)
+dev.copy(png, "Figure1I.png", width = 2000, height = 2000, res = 300)
+dev.off() 
+
+
+gene_expression_CD81 <- as.vector(T_cell_sub@assays$RNA["CD81", ])
+gene_expression_CD82 <- as.vector(T_cell_sub@assays$RNA["CD82", ])
+
+group <- T_cell_sub$NMF
+
+wilcox_result_CD81 <- wilcox.test(gene_expression_CD81 ~ group)
+wilcox_result_CD82 <- wilcox.test(gene_expression_CD82 ~ group)
+
+p_value_CD81_wilcox <- wilcox_result_CD81$p.value
+p_value_CD82_wilcox <- wilcox_result_CD82$p.value
+```
+
+```{r}
+exhaustion_genes <- c(
+  "IFNG",
+  "GZMB",
+  "GZMK",
+  "TNF",
+  "IL2RA",
+  "CD69",
+  "PDCD1",   
+  "CTLA4",   
+  "HAVCR2",  
+  "LAG3",  
+  "ENTPD1", 
+  "IDO1",   
+  "BTLA"   
+)
+target_genes <-c("LRFN4","LRFN2","LRFN1","UPK1A","PRPH2","MXD4","TSPAN3","CD82","CD81")
+target_genes2 <-c(exhaustion_genes,target_genes)
+
+```
+
+
+```{r}
+matrix_to_expression_df<- function(x, obj){
+        df<- x %>%
+                as.matrix() %>% 
+                as.data.frame() %>%
+                tibble::rownames_to_column(var= "gene") %>%
+                tidyr::pivot_longer(cols = -1, names_to = "cell", values_to = "expression") %>%
+                tidyr::pivot_wider(names_from = "gene", values_from = expression) %>%
+                left_join(obj@meta.data %>% 
+                                  tibble::rownames_to_column(var = "cell"))
+        return(df)
+}
+
+
+get_expression_data<- function(obj, assay = "RNA", slot = "data", 
+                               genes = NULL, cells = NULL){
+        if (is.null(genes) & !is.null(cells)){
+                df<- GetAssayData(obj, assay = assay, slot = slot)[, cells, drop = FALSE] %>%
+                        matrix_to_expression_df(obj = obj)
+        } else if (!is.null(genes) & is.null(cells)){
+                df <- GetAssayData(obj, assay = assay, slot = slot)[genes, , drop = FALSE] %>%
+                        matrix_to_expression_df(obj = obj)
+        } else if (is.null(genes & is.null(cells))){
+                df <- GetAssayData(obj, assay = assay, slot = slot)[, , drop = FALSE] %>%
+                        matrix_to_expression_df(obj = obj)
+        } else {
+                df<- GetAssayData(obj, assay = assay, slot = slot)[genes, cells, drop = FALSE] %>%
+                        matrix_to_expression_df(obj = obj)
+        }
+        return(df)
+}
+```
+
+
+```{r}
+
+# Seurat 객체에서 특정 유전자의 이름 지정
+expression_data<- get_expression_data(T_cell_sub, genes = target_genes2)
+
+head(expression_data)
+```
+
+https://seriph78.github.io/Cotan_paper/Fig1_Seurat_corr_vs_cotan_heatmap.html
+```{r}
+
+target_genes3 <- c(
+  "IFNG",
+  "GZMB",
+  "GZMK",
+  "TNF",
+  "IL2RA",
+  "CD69",
+  "PDCD1",   
+  "CTLA4",   
+  "HAVCR2",  
+  "LAG3",  
+  "ENTPD1", 
+  "IDO1",   
+  "BTLA" ,
+  "CD81",
+  "CD82"
+  
+  )
+seurat.data = T_cell_sub[["RNA"]]@data
+seurat.data <- seurat.data[target_genes3,]
+M = cor(t(as.matrix(seurat.data)))
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(M, method="color", col=rev(col(200)))
+res1 <- cor.mtest(M, conf.level = .95)
+```
+
+```{r, fig.width=8, fig.height=8}
+
+    
+                              
+corrplot(M,
+     method="square",
+     col=rev(col(200)),
+     type="lower",
+     #p.mat = res1$p,
+     insig = "label_sig",
+     sig.level = c(.001, .01, .05),
+     pch.cex = 0.8,
+     pch.col = "red",
+     tl.col="black",
+     tl.cex=1,
+     outline=TRUE)
+
+p <- corrplot(M,title = "Correlation Plot", 
+         col=rev(col(200)),
+         method = "square", outline = T, addgrid.col = "black", order="hclust", mar = c(4,0,4,0), addrect = 4, rect.col = "black", rect.lwd = 3,cl.pos = "b", tl.col = "black", tl.cex = 3, cl.cex = 2)
+dev.copy(png, "Figure1J.png", width = 4000, height = 4000, res = 300)
+dev.off() 
+```
+
+
+```{r}
+TC <-T_cell_sub
+```
+
+
+#ssGSEA
+```{r}
+suppressPackageStartupMessages(library(escape))
+suppressPackageStartupMessages(library(dittoSeq))
+suppressPackageStartupMessages(library(SingleCellExperiment))
+suppressPackageStartupMessages(library(Seurat))
+suppressPackageStartupMessages(library(SeuratObject))
+
+GS.hallmark <- getGeneSets(library = "H")
+
+
+
+gene.sets <- list(Tcell_signature  <- c("RGS18",
+  "H3C8",
+  "SNX7",
+  "IL26",
+  "PHF24",
+  "ROR2",
+  "B3GALT2",
+  "AURKB",
+  "FUT1",
+  "TNFRSF6B",
+  "NCAPH",
+  "PTPN13",
+  "TUBBP2",
+  "LOC107986072",
+  "LONRF2",
+  "NFILZ",
+  "ASS1P1",
+  "RAD51L3-RFFL",
+  "PLD1",
+  "RPS3AP25",
+  "CLECL1",
+  "PAK3",
+  "LOC105374464",
+  "OR2A1",
+  "E2F8",
+  "EGLN3",
+  "CFH",
+  "DPP4-DT",
+  "MIR4709",
+  "EVC",
+  "FAM111B",
+  "ALOX5AP",
+  "LOC105371453",
+  "SLC4A10",
+  "IL4I1",
+  "OR2A42",
+  "STON1",
+  "ITGB5",
+  "ZFPM2",
+  "SPC24",
+  "TK1",
+  "HLF",
+  "RPL7P7",
+  "CCR2",
+  "DIAPH3",
+  "COL5A1",
+  "LINC00540",
+  "RCBTB2",
+  "IL17RE",
+  "SNORA74C-1",
+  "BPTFP1",
+  "SUPT20HL1",
+  "PCDHGA8",
+  "EVC2"
+))
+
+
+
+
+TC <- TC[, sample(colnames(TC), size =1000, replace=F)] 
+  
+  
+ES.seurat <- enrichIt(obj = TC, 
+                      gene.sets = GS.hallmark, 
+                      groups = 1000, 
+                      #cores = 2, 
+                      #min.size = 5,
+                      )
+
+ES.seurat2 <- enrichIt(obj = TC, 
+                      gene.sets = gene.sets, 
+                      groups = 1000, 
+                      #cores = 2, 
+                      #min.size = 5,
+                      )
+
+
+
+dim(ES.seurat)
+dim(ES.seurat2)
+cell=rownames(ES.seurat)
+TC<-subset(TC, cell=cell)
+TC2 <- AddMetaData(TC,ES.seurat)
+TC2 <- AddMetaData(TC2,ES.seurat2)
+
+saveRDS(ES.seurat, "ESseurat.Rds")
+```
+
+
+
+```{r, fig.width=7, fig.height=12}
+library(dittoSeq)
+library(scater)
+library(patchwork)
+library(cowplot)
+library(viridis)
+
+colors <- colorRampPalette(c("#0D0887FF","#7E03A8FF","#CC4678FF","#F89441FF","#F0F921FF"))
+
+
+
+# CD81 및 CD82 유전자의 데이터를 먼저 추출합니다.
+CD81 <- TC2@assays$RNA@counts["CD81", ]
+CD82 <- TC2@assays$RNA@counts["CD82", ]
+
+# CD81 메타데이터를 TC2 객체에 추가합니다.
+TC2 <- AddMetaData(TC2, metadata = CD81, col.name = "CD81")
+TC2 <- AddMetaData(TC2, metadata = CD82, col.name = "CD82")
+
+
+
+colnames(TC2@meta.data)
+
+dittoHeatmap(TC2, genes = NULL, 
+             metas = c("HALLMARK_INTERFERON_ALPHA_RESPONSE", 
+                       "HALLMARK_INTERFERON_GAMMA_RESPONSE", 
+                       "HALLMARK_ALLOGRAFT_REJECTION",
+                       "HALLMARK_MYC_TARGETS_V2"), 
+             fontsize = 7,
+             heatmap.colors = colors(50)
+             )
+
+Tcell_signature  <- c("IL26", "TNFRSF6B", "IL4I1", "CCR2")
+
+dittoHeatmap(TC2, genes = Tcell_signature, 
+annot.by = c("CD81","CD82"),
+             fontsize = 7,
+             heatmap.colors = colors(50)
+             )
+
+colnames(TC2@meta.data)
+gene.sets
+
+library(ggplot2)
+p <-dittoHeatmap(TC2, genes = NULL, 
+             cluster_cols = F, 
+             scaled.to.max = TRUE,
+             metas = colnames(ES.seurat),
+             fontsize = 7,
+             heatmap.colors.max.scaled = inferno(100),
+             annot.by = c("CD81","CD82")
+             )
+ggplot2::ggsave(filename = "Figure5A.png", plot = p, width = 10, height = 12, dpi = 600)
+
+```
+
+
+
+```{r, fig.width=4, fig.height=4}
+DimPlot(T_cell_sub)
+FeaturePlot(T_cell_sub, features = "CD81", max.cutoff = 5, pt.size = 0.1)
+dev.copy(png, "Figure5B.png", width = 1000, height = 1000, res = 300)
+dev.off() 
+FeaturePlot(TC2, features = "HALLMARK_INTERFERON_GAMMA_RESPONSE", max.cutoff = 5, pt.size = 2)+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+dev.copy(png, "Figure5C-1.png", width = 1000, height = 1000, res = 300)
+dev.off() 
+FeaturePlot(TC2, features = "HALLMARK_IL2_STAT5_SIGNALING", max.cutoff = 5, pt.size = 2)+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+dev.copy(png, "Figure5C-2.png", width = 1000, height = 1000, res = 300)
+dev.off() 
+FeaturePlot(TC2, features = "HALLMARK_PI3K_AKT_MTOR_SIGNALING", max.cutoff = 5, pt.size = 2)+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+dev.copy(png, "Figure5C-3-.png", width = 1000, height = 1000, res = 300)
+dev.off() 
+FeaturePlot(TC2, features = "HALLMARK_PROTEIN_SECRETION", max.cutoff = 5, pt.size = 2)+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+dev.copy(png, "Figure5C-4.png", width = 1000, height = 1000, res = 300)
+dev.off() 
+FeaturePlot(TC2, features = "t.scores.", max.cutoff = 5, pt.size = 3)+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+
+
+colnames(TC2@meta.data)
+
+```
+
+```{r}
+save.image("CD81.Rdata")
+```
+
+
